@@ -1,13 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Allow network IP access during development
-  allowedDevOrigins: ['10.162.102.121'],
+  allowedDevOrigins: ["10.162.102.121"],
 
-  // Enable standalone output for Docker-optimized builds (~150MB image)
-  output: "standalone",
-
-  // Image optimization: allow external avatar/CDN domains
   images: {
     remotePatterns: [
       {
@@ -16,12 +11,11 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: "https",
-        hostname: "lh3.googleusercontent.com", // Google profile pictures
+        hostname: "lh3.googleusercontent.com",
       },
     ],
   },
 
-  // Security & performance headers
   async headers() {
     return [
       {
@@ -56,10 +50,7 @@ const nextConfig: NextConfig = {
     ];
   },
 
-  // Enable gzip compression
   compress: true,
-
-  // Powered-by header removal (security best practice)
   poweredByHeader: false,
 };
 
