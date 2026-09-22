@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase/config";
 import { signOut, onAuthStateChanged } from "firebase/auth";
+
 interface NavbarProps {
   onMenuToggle?: () => void;
   language: "EN" | "UR";
@@ -20,16 +21,25 @@ export default function Navbar({ onMenuToggle, language, setLanguage }: NavbarPr
   // User state
   const [userName, setUserName] = useState("Guest");
   const [userInitials, setUserInitials] = useState("GU");
+  const [userEmail, setUserEmail] = useState("");
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user && user.displayName) {
-        setUserName(user.displayName);
-        const initials = user.displayName.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase();
-        setUserInitials(initials);
+      if (user) {
+        const name = user.displayName || user.email?.split("@")[0] || "User";
+        setUserName(name);
+        const initials = name
+          .split(" ")
+          .map((n: string) => n[0])
+          .join("")
+          .substring(0, 2)
+          .toUpperCase();
+        setUserInitials(initials || "US");
+        setUserEmail(user.email || "");
       } else {
         setUserName("Guest User");
         setUserInitials("GU");
+        setUserEmail("");
       }
     });
     return () => unsubscribe();
@@ -38,11 +48,10 @@ export default function Navbar({ onMenuToggle, language, setLanguage }: NavbarPr
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      localStorage.removeItem("eduai_role");
-      router.push("/auth");
     } catch (e) {
-      console.error("Logout failed", e);
+      console.warn("Firebase logout error:", e);
     }
+    router.push("/auth");
   };
 
   return (
@@ -141,7 +150,7 @@ export default function Navbar({ onMenuToggle, language, setLanguage }: NavbarPr
               <div className="absolute right-0 mt-2 w-56 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-50 animate-in slide-in-from-top-2">
                 <div className="px-4 py-3 border-b border-slate-700 bg-slate-800/80">
                   <p className="text-sm font-bold text-white">{userName}</p>
-                  <p className="text-xs text-slate-400 truncate">{auth.currentUser?.email || 'No email'}</p>
+                  <p className="text-xs text-slate-400 truncate">{userEmail || auth.currentUser?.email || 'No email'}</p>
                 </div>
                 <div className="p-2">
                   <button className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2">

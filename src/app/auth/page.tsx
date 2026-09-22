@@ -4,8 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { GraduationCap, Users, HeartHandshake, ArrowRight, Bot, Sparkles, Mail, Lock, User, MoveLeft, Shield } from "lucide-react";
 import { auth } from "@/lib/firebase/config";
-import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
-import { createClient } from "@/lib/supabase/client";
+import {
+  GoogleAuthProvider,
+  signInWithPopup,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
+} from "firebase/auth";
 
 type Role = "student" | "teacher" | "parent" | "admin" | null;
 type AuthMode = "role-select" | "signup" | "login";
@@ -73,54 +78,126 @@ export default function AuthPage() {
     setIsLoading(true);
     setAuthError("");
 
-    const supabase = createClient();
-    const result = mode === "signup"
-      ? await supabase.auth.signUp({
-          email,
-          password,
-          options: { data: { full_name: name, role: selectedRole } },
-        })
-      : await supabase.auth.signInWithPassword({ email, password });
+    try {
+      if (mode === "signup") {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
 
-    if (result.error) {
-      setAuthError(result.error.message);
-      setIsLoading(false);
-      return;
-    }
+        if (name.trim()) {
+          try {
+            await updateProfile(user, { displayName: name.trim() });
+          } catch (pErr) {
+            console.warn("Update profile name warning:", pErr);
+          }
+        }
 
-    if (mode === "signup" && result.data.user && selectedRole) {
-      const { error: profileError } = await supabase.from("profiles").upsert({
-        id: result.data.user.id,
-        full_name: name,
-        role: selectedRole,
-      });
-      if (profileError) {
-        setAuthError(profileError.message);
-        setIsLoading(false);
-        return;
+        const idToken = await user.getIdToken();
+        const roleToAssign = selectedRole || "student";
+
+        // Securely assign custom claims via Firebase Admin
+        try {
+          await fetch("/api/auth/role", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({
+              role: roleToAssign,
+              fullName: name.trim() || user.displayName,
+            }),
+          });
+        } catch (claimErr) {
+          console.warn("Role assignment warning:", claimErr);
+        }
+
+        // Force refresh to obtain token containing the new custom claim
+        await user.getIdToken(true);
+        router.push("/dashboards");
+      } else {
+        // mode === "login"
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        const idToken = await user.getIdToken();
+
+        // If a role was selected or user has no role claim, ensure claim is set
+        const tokenResult = await user.getIdTokenResult();
+        if (selectedRole || !tokenResult.claims.role) {
+          try {
+            await fetch("/api/auth/role", {
+              method: selectedRole ? "POST" : "GET",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${idToken}`,
+              },
+              body: selectedRole ? JSON.stringify({ role: selectedRole }) : undefined,
+            });
+            await user.getIdToken(true);
+          } catch (claimErr) {
+            console.warn("Role claim verification warning:", claimErr);
+          }
+        }
+
+        router.push("/dashboards");
       }
-    }
-
-    if (!result.data.session) {
-      setAuthError("Check your email to confirm your account before signing in.");
+    } catch (err: any) {
+      console.error("Firebase auth error:", err);
+      let message = "Authentication failed. Please check your credentials.";
+      if (err.code === "auth/email-already-in-use") {
+        message = "This email is already in use. Please log in instead.";
+      } else if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+        message = "Invalid email or password.";
+      } else if (err.code === "auth/weak-password") {
+        message = "Password should be at least 6 characters long.";
+      } else if (err.code === "auth/user-not-found") {
+        message = "No account found with this email.";
+      } else if (err.message) {
+        message = err.message;
+      }
+      setAuthError(message);
+    } finally {
       setIsLoading(false);
-      return;
     }
-    router.push("/");
   };
 
   const handleGoogleSignIn = async () => {
     try {
       setIsLoading(true);
+      setAuthError("");
+
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-      
-      const finalRole = selectedRole || "student";
-      localStorage.setItem("eduai_role", finalRole);
-      router.push("/");
-    } catch (error) {
-      console.error("Google sign in error", error);
-      alert("Failed to sign in with Google.");
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+      const idToken = await user.getIdToken();
+
+      const roleToAssign = selectedRole || "student";
+
+      try {
+        await fetch("/api/upload/profiles/sync", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({
+            fullName: user.displayName,
+            email: user.email,
+            role: roleToAssign,
+          }),
+        });
+      } catch (syncErr) {
+        console.warn("Profile sync request failed:", syncErr);
+      }
+
+      // Force refresh token so the custom claim is loaded
+      await user.getIdToken(true);
+
+      router.push("/dashboards");
+    } catch (error: any) {
+      console.error("Google sign in error:", error);
+      if (error?.code !== "auth/popup-closed-by-user") {
+        setAuthError(error?.message || "Failed to sign in with Google.");
+      }
     } finally {
       setIsLoading(false);
     }

@@ -3,17 +3,18 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
-import StudentDashboard from "@/components/StudentDashboard";
+import StudentDashboard from "@/components/dashboards/StudentDashboard";
 import AITutorChat from "@/components/AITutorChat";
 import SmartQuizGenerator from "@/components/SmartQuizGenerator";
 import AINotesGenerator from "@/components/AINotesGenerator";
 import AssignmentViewer from "@/components/AssignmentViewer";
 import FlashcardsViewer from "@/components/FlashcardsViewer";
 import DigitalLibrary from "@/components/DigitalLibrary";
-import AdminDashboard from "@/components/AdminDashboard";
-import TeacherDashboard from "@/components/TeacherDashboard";
-import ParentDashboard from "@/components/ParentDashboard";
-import { createClient } from "@/lib/supabase/client";
+import AdminDashboard from "@/components/dashboards/AdminDashboard";
+import TeacherDashboard from "@/components/dashboards/TeacherDashboard";
+import ParentDashboard from "@/components/dashboards/ParentDashboard";
+import { auth } from "@/lib/firebase/config";
+import { signOut, onAuthStateChanged } from "firebase/auth";
 import { LayoutDashboard, MessageSquare, BookOpenCheck, Users, HeartHandshake, LogOut, FileText, ClipboardCheck, Layers, Library, Shield } from "lucide-react";
 
 export default function Home() {
@@ -24,41 +25,71 @@ export default function Home() {
 
   useEffect(() => {
     let mounted = true;
-    const loadSession = async () => {
-      const supabase = createClient();
-      const { data: authData } = await supabase.auth.getUser();
-      if (!authData.user) {
-        router.push("/auth");
+
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        if (mounted) {
+          router.push("/auth");
+        }
         return;
       }
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", authData.user.id)
-        .single();
-      const currentRole = profile?.role;
-      if (!mounted || !currentRole) {
-        router.push("/auth");
-        return;
+      try {
+        let tokenResult = await user.getIdTokenResult();
+        let userRole = tokenResult.claims.role as string | undefined;
+
+        // If custom claim role is not yet in the token, fetch and set via Firebase Admin API
+        if (!userRole) {
+          const idToken = await user.getIdToken();
+          const res = await fetch("/api/auth/role", {
+            headers: { Authorization: `Bearer ${idToken}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            userRole = data.role;
+            await user.getIdToken(true);
+          }
+        }
+
+        const finalRole = userRole || "student";
+        if (mounted) {
+          setRole(finalRole);
+          setActiveTab(
+            finalRole === "teacher" || finalRole === "parent" || finalRole === "admin"
+              ? finalRole
+              : "student"
+          );
+        }
+      } catch (err) {
+        console.error("Firebase auth verification error:", err);
+        if (mounted) {
+          setRole("student");
+          setActiveTab("student");
+        }
       }
-      setRole(currentRole);
-      setActiveTab(currentRole === "teacher" || currentRole === "parent" || currentRole === "admin" ? currentRole : "student");
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
     };
-    void loadSession();
-    return () => { mounted = false; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [router]);
 
   if (!role) {
-    return <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-      <div className="w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
-    </div>;
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
   }
 
-
-  const handleLogout = () => {
-    void createClient().auth.signOut().finally(() => router.push("/auth"));
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (e) {
+      console.warn("Firebase sign out error:", e);
+    }
+    router.push("/auth");
   };
 
   const allTabs = [
