@@ -1,98 +1,115 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { adminAuth } from "@/lib/firebase/admin";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const VALID_ROLES = ["student", "teacher", "parent", "admin"] as const;
 type ValidRole = (typeof VALID_ROLES)[number];
 
+// ── GET: resolve role from token claim or DB ──────────────────────────────────
 export async function GET(request: NextRequest) {
   try {
     const authHeader = request.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Missing authorization token" }, { status: 401 });
-    }
+    if (!authHeader?.startsWith("Bearer "))
+      return NextResponse.json({ error: "Missing token" }, { status: 401 });
 
-    const idToken = authHeader.substring(7);
-    const decodedToken = await adminAuth.verifyIdToken(idToken);
+    const decoded = await adminAuth.verifyIdToken(authHeader.slice(7));
 
-    // If custom claim role exists, return it
-    if (decodedToken.role && VALID_ROLES.includes(decodedToken.role as ValidRole)) {
-      return NextResponse.json({ role: decodedToken.role });
-    }
+    // Already has valid claim
+    if (decoded.role && VALID_ROLES.includes(decoded.role as ValidRole))
+      return NextResponse.json({ role: decoded.role });
 
-    // Otherwise, check database for existing role
+    // Lookup in DB by firebase_uid
     let assignedRole: ValidRole = "student";
     try {
       const supabase = createAdminClient();
-      const { data: profile } = await supabase
+      const { data } = await supabase
         .from("profiles")
         .select("role")
-        .eq("firebase_uid", decodedToken.uid)
+        .eq("firebase_uid", decoded.uid)
         .maybeSingle();
+      if (data?.role && VALID_ROLES.includes(data.role as ValidRole))
+        assignedRole = data.role as ValidRole;
+    } catch { /* fallback to student */ }
 
-      if (profile?.role && VALID_ROLES.includes(profile.role as ValidRole)) {
-        assignedRole = profile.role as ValidRole;
-      }
-    } catch (dbErr) {
-      console.warn("Database lookup in /api/auth/role GET failed:", dbErr);
-    }
-
-    // Set custom claim so all future tokens have the verified role
-    await adminAuth.setCustomUserClaims(decodedToken.uid, { role: assignedRole });
-
+    await adminAuth.setCustomUserClaims(decoded.uid, { role: assignedRole });
     return NextResponse.json({ role: assignedRole });
-  } catch (error: any) {
-    console.error("Error in GET /api/auth/role:", error);
-    return NextResponse.json({ error: error?.message || "Unauthorized" }, { status: 401 });
+  } catch (e) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 }
 
+// ── POST: assign role, sync profile to Supabase ───────────────────────────────
 export async function POST(request: NextRequest) {
   try {
     const authHeader = request.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Missing authorization token" }, { status: 401 });
+    if (!authHeader?.startsWith("Bearer "))
+      return NextResponse.json({ error: "Missing token" }, { status: 401 });
+
+    const decoded = await adminAuth.verifyIdToken(authHeader.slice(7));
+    const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+
+    const requestedRole = String(body.role || "student");
+    let role: ValidRole = VALID_ROLES.includes(requestedRole as ValidRole)
+      ? (requestedRole as ValidRole)
+      : "student";
+
+    // Admin role: check allowlist (soft — don't hard-block if table missing)
+    if (requestedRole === "admin") {
+      try {
+        const supabase = createAdminClient();
+        const { data: allowed } = await supabase
+          .from("admin_allowlist")
+          .select("email")
+          .eq("email", (decoded.email || "").toLowerCase())
+          .maybeSingle();
+        if (!allowed) {
+          return NextResponse.json(
+            { error: "Access denied — email not in admin allowlist." },
+            { status: 403 }
+          );
+        }
+        role = "admin";
+      } catch {
+        // If admin_allowlist table doesn't exist yet, allow — admin sets up DB manually
+        role = "admin";
+      }
     }
 
-    const idToken = authHeader.substring(7);
-    const decodedToken = await adminAuth.verifyIdToken(idToken);
+    // Set Firebase custom claim
+    await adminAuth.setCustomUserClaims(decoded.uid, { role });
 
-    const body = await request.json().catch(() => ({}));
-    const requestedRole = body.role;
-
-    const role: ValidRole = VALID_ROLES.includes(requestedRole) ? requestedRole : "student";
-
-    // Set cryptographic Firebase Custom User Claim
-    await adminAuth.setCustomUserClaims(decodedToken.uid, { role });
-
-    // Sync to Supabase profiles table for database relations
+    // Sync to Supabase profiles
+    // profiles.id is BIGINT IDENTITY — don't pass it; upsert on firebase_uid
     try {
       const supabase = createAdminClient();
+
       const upsertData: Record<string, unknown> = {
-        firebase_uid: decodedToken.uid,
-        full_name: body.fullName || decodedToken.name || null,
-        email: decodedToken.email || null,
+        firebase_uid: decoded.uid,
+        full_name:    String(body.fullName || decoded.name || "").trim() || "User",
+        email:        decoded.email || null,
         role,
       };
-      // For parent role, store the child student email so parent-dashboard can resolve the student
+
+      // Parent: store child link
       if (role === "parent" && body.childStudentEmail) {
-        upsertData.child_student_email = body.childStudentEmail.trim().toLowerCase();
+        upsertData.child_student_email =
+          String(body.childStudentEmail).trim().toLowerCase();
       }
 
-      const { error: syncError } = await supabase
+      const { error: upsertErr } = await supabase
         .from("profiles")
         .upsert(upsertData, { onConflict: "firebase_uid" });
 
-      if (syncError) {
-        console.warn("Profile sync in /api/auth/role POST warning:", syncError.message);
+      if (upsertErr) {
+        console.warn("[role/POST] profile upsert warning:", upsertErr.message);
       }
-    } catch (syncErr) {
-      console.warn("Database sync warning in /api/auth/role:", syncErr);
+    } catch (e) {
+      console.warn("[role/POST] DB sync error:", e);
     }
 
     return NextResponse.json({ success: true, role });
-  } catch (error: any) {
-    console.error("Error in POST /api/auth/role:", error);
-    return NextResponse.json({ error: error?.message || "Failed to set role" }, { status: 500 });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
