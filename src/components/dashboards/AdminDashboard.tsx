@@ -35,10 +35,11 @@ interface UserRow {
   created_at: string;
 }
 
-async function authHeaders() {
+async function authHeaders(): Promise<Record<string, string>> {
   const user = auth.currentUser;
   if (!user) return {};
-  return { Authorization: `Bearer ${await user.getIdToken()}` };
+  const token = await user.getIdToken();
+  return { Authorization: `Bearer ${token}` };
 }
 
 export default function AdminDashboard() {

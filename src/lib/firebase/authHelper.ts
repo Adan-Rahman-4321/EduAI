@@ -1,6 +1,5 @@
 /**
  * Server-side Firebase token verifier for Pages Router API routes.
- * Returns the decoded UID or null if token is missing/invalid.
  */
 import type { NextApiRequest } from 'next';
 import { adminAuth } from './admin';
@@ -16,10 +15,11 @@ export async function getUidFromRequest(req: NextApiRequest): Promise<string | n
   }
 }
 
-/** Get both uid AND supabase profile id for the caller */
+/** Get uid + supabase profile for the caller */
 export async function getProfileFromRequest(
   req: NextApiRequest,
-  supabase: ReturnType<typeof import('@supabase/supabase-js').createClient>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any
 ): Promise<{ uid: string; profileId: string | null; role: string | null; email: string | null } | null> {
   const uid = await getUidFromRequest(req);
   if (!uid) return null;
@@ -31,11 +31,12 @@ export async function getProfileFromRequest(
       .eq('firebase_uid', uid)
       .maybeSingle();
 
+    const row = data as { id: string; role: string; email: string } | null;
     return {
       uid,
-      profileId: data?.id ?? null,
-      role: data?.role ?? null,
-      email: data?.email ?? null,
+      profileId: row?.id ?? null,
+      role:      row?.role ?? null,
+      email:     row?.email ?? null,
     };
   } catch {
     return { uid, profileId: null, role: null, email: null };
