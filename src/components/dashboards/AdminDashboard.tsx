@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect } from 'react';
 import {
@@ -36,10 +36,13 @@ interface UserRow {
 }
 
 async function authHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
   const user = auth.currentUser;
-  if (!user) return {};
-  const token = await user.getIdToken();
-  return { Authorization: `Bearer ${token}` };
+  if (user) {
+    const token = await user.getIdToken();
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
 }
 
 export default function AdminDashboard() {
@@ -64,7 +67,7 @@ export default function AdminDashboard() {
   const [settings, setSettings] = useState({ offline_mode: true, strict_rbac: true, emergency_halt: false });
   const [notice, setNotice] = useState('');
 
-  // ── Fetch analytics ─────────────────────────────────────────────────────────
+  // â”€â”€ Fetch analytics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     (async () => {
       try {
@@ -77,7 +80,7 @@ export default function AdminDashboard() {
     })();
   }, []);
 
-  // ── Fetch users when tab changes ────────────────────────────────────────────
+  // â”€â”€ Fetch users when tab changes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     if (activeTab !== 'users') return;
     loadUsers();
@@ -148,7 +151,7 @@ export default function AdminDashboard() {
     } catch { /* silent */ }
   };
 
-  // ── Role badge ──────────────────────────────────────────────────────────────
+  // â”€â”€ Role badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const roleBadge = (role: string) => {
     const map: Record<string, string> = {
       admin:   'bg-purple-500/20 text-purple-400 border-purple-500/30',
@@ -162,13 +165,13 @@ export default function AdminDashboard() {
   return (
     <div className="flex flex-col gap-6 w-full overflow-y-auto scrollbar-hide pb-8">
 
-      {/* ── Header ── */}
+      {/* â”€â”€ Header â”€â”€ */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <Shield className="w-6 h-6 text-sky-400" /> Welcome, {displayName}
           </h1>
-          <p className="text-slate-400 mt-1 text-sm">Platform administration — real-time data from Supabase</p>
+          <p className="text-slate-400 mt-1 text-sm">Platform administration â€” real-time data from Supabase</p>
         </div>
         <div className="flex bg-slate-800/50 p-1 rounded-xl border border-slate-700/50">
           {(['overview', 'users', 'settings'] as const).map(tab => (
@@ -189,7 +192,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ── Analytics Tab ── */}
+      {/* â”€â”€ Analytics Tab â”€â”€ */}
       {activeTab === 'overview' && (
         <div className="flex flex-col gap-6 animate-in fade-in">
           {analyticsLoading ? (
@@ -239,7 +242,7 @@ export default function AdminDashboard() {
                     <Bar dataKey="quizzes"      name="Quizzes Taken"     fill="#8b5cf6" radius={[4,4,0,0]} />
                   </BarChart>
                 </ResponsiveContainer>
-                <p className="text-xs text-slate-500 mt-2 text-center">Last 7 days — new registrations & quizzes per day</p>
+                <p className="text-xs text-slate-500 mt-2 text-center">Last 7 days â€” new registrations & quizzes per day</p>
               </div>
 
               {/* Secondary stats */}
@@ -267,7 +270,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ── Users Tab ── */}
+      {/* â”€â”€ Users Tab â”€â”€ */}
       {activeTab === 'users' && (
         <div className="glass-card p-6 animate-in fade-in flex flex-col gap-4">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -322,15 +325,15 @@ export default function AdminDashboard() {
                 <tbody className="divide-y divide-slate-700/50">
                   {usersList.map(user => (
                     <tr key={user.id} className="hover:bg-slate-800/30 transition-colors">
-                      <td className="p-3 font-medium text-slate-200 text-sm">{user.full_name || '—'}</td>
-                      <td className="p-3 text-sm text-slate-400">{user.email || '—'}</td>
+                      <td className="p-3 font-medium text-slate-200 text-sm">{user.full_name || 'â€”'}</td>
+                      <td className="p-3 text-sm text-slate-400">{user.email || 'â€”'}</td>
                       <td className="p-3">
                         <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase border ${roleBadge(user.role)}`}>
                           {user.role}
                         </span>
                       </td>
                       <td className="p-3 text-xs text-slate-400">
-                        {user.created_at ? new Date(user.created_at).toLocaleDateString() : '—'}
+                        {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'â€”'}
                       </td>
                       <td className="p-3 text-right">
                         <button onClick={() => handleDeleteUser(user.id)} className="p-1.5 text-slate-600 hover:text-red-400 transition-colors rounded">
@@ -386,7 +389,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ── Settings Tab ── */}
+      {/* â”€â”€ Settings Tab â”€â”€ */}
       {activeTab === 'settings' && (
         <div className="glass-card p-6 animate-in fade-in flex flex-col gap-4">
           <h3 className="font-semibold text-slate-200 flex items-center gap-2">
@@ -428,3 +431,4 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
