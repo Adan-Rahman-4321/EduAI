@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Users, AlertTriangle, BookMarked, Search, Plus, UploadCloud, FileText, CheckCircle2, ClipboardCheck, Calendar, X, Loader2 } from 'lucide-react';
+import { useUserProfile } from '@/hooks/useUserProfile';
 
 const mockStudents = [
   { id: '1', name: 'Ali Hassan', mastery: 78, weakTopic: 'Quadratic Eq.', status: 'improving', present: true },
@@ -11,6 +12,8 @@ const mockStudents = [
 
 export default function TeacherDashboard({ language }: { language: "EN" | "UR" }) {
   const isUrdu = language === "UR";
+  const { profile } = useUserProfile();
+  const displayName = profile?.full_name || (isUrdu ? 'استاد' : 'Teacher');
   
   const [activeTab, setActiveTab] = useState<'overview' | 'assignments' | 'attendance'>('overview');
   const [attendanceData, setAttendanceData] = useState(mockStudents);
@@ -181,8 +184,12 @@ export default function TeacherDashboard({ language }: { language: "EN" | "UR" }
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Classroom Overview</h1>
-          <p className="text-slate-400 mt-1">Class 10-A (Science Group) • {mockStudents.length} Students</p>
+          <h1 className={`text-2xl font-bold text-white ${isUrdu ? 'font-urdu' : ''}`}>
+            {isUrdu ? `خوش آمدید، ${displayName}!` : `Welcome, ${displayName}!`}
+          </h1>
+          <p className={`text-slate-400 mt-1 ${isUrdu ? 'font-urdu' : ''}`}>
+            {isUrdu ? `کلاس 10-A (سائنس گروپ) • ${mockStudents.length} طلباء` : `Class 10-A (Science Group) • ${mockStudents.length} Students`}
+          </p>
         </div>
         
         <div className="flex bg-slate-800/50 p-1 rounded-xl border border-slate-700/50">

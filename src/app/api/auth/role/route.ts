@@ -68,17 +68,20 @@ export async function POST(request: NextRequest) {
     // Sync to Supabase profiles table for database relations
     try {
       const supabase = createAdminClient();
+      const upsertData: Record<string, unknown> = {
+        firebase_uid: decodedToken.uid,
+        full_name: body.fullName || decodedToken.name || null,
+        email: decodedToken.email || null,
+        role,
+      };
+      // For parent role, store the child student email so parent-dashboard can resolve the student
+      if (role === "parent" && body.childStudentEmail) {
+        upsertData.child_student_email = body.childStudentEmail.trim().toLowerCase();
+      }
+
       const { error: syncError } = await supabase
         .from("profiles")
-        .upsert(
-          {
-            firebase_uid: decodedToken.uid,
-            full_name: body.fullName || decodedToken.name || null,
-            email: decodedToken.email || null,
-            role,
-          },
-          { onConflict: "firebase_uid" }
-        );
+        .upsert(upsertData, { onConflict: "firebase_uid" });
 
       if (syncError) {
         console.warn("Profile sync in /api/auth/role POST warning:", syncError.message);

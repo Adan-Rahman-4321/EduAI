@@ -25,6 +25,7 @@ export default function AuthPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [childEmail, setChildEmail] = useState(""); // parent only
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState("");
 
@@ -105,6 +106,7 @@ export default function AuthPage() {
             body: JSON.stringify({
               role: roleToAssign,
               fullName: name.trim() || user.displayName,
+              childStudentEmail: roleToAssign === "parent" ? childEmail.trim() : undefined,
             }),
           });
         } catch (claimErr) {
@@ -327,22 +329,38 @@ export default function AuthPage() {
                 
                 <div className="relative group">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-sky-400 transition-colors" />
-                  <input 
-                    type="email" 
+                  <input
+                    type="email"
                     required
-                    placeholder="Email address" 
+                    placeholder="Your email address"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl py-3 pl-11 pr-4 text-sm text-slate-200 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all placeholder:text-slate-500"
                   />
                 </div>
 
+                {/* Child student email — only for parent role */}
+                {selectedRole === "parent" && (
+                  <div className="relative group">
+                    <HeartHandshake className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-emerald-400 transition-colors" />
+                    <input
+                      type="email"
+                      required={selectedRole === "parent"}
+                      placeholder="Student's registered email (your child)"
+                      value={childEmail}
+                      onChange={(e) => setChildEmail(e.target.value)}
+                      className="w-full bg-slate-900/50 border border-emerald-700/40 rounded-xl py-3 pl-11 pr-4 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all placeholder:text-slate-500"
+                    />
+                    <p className="text-xs text-emerald-500/70 mt-1 ml-1">Enter the email your child used to register as a Student</p>
+                  </div>
+                )}
+
                 <div className="relative group">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-sky-400 transition-colors" />
-                  <input 
-                    type="password" 
+                  <input
+                    type="password"
                     required
-                    placeholder="Password" 
+                    placeholder="Password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl py-3 pl-11 pr-4 text-sm text-slate-200 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all placeholder:text-slate-500"

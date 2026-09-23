@@ -1,63 +1,134 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@supabase/supabase-js';
-import { requireRole } from '../../lib/supabase/api';
+import { getProfileFromRequest } from '../../lib/firebase/authHelper';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const user = await requireRole(req, res, ['teacher']);
-  if (!user) return;
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
-  if (req.method === 'GET') {
-    const { student_id } = req.query;
+  const caller = await getProfileFromRequest(req, supabase);
+  const teacherProfileId = caller?.profileId;
 
-    let query = supabase
-      .from('progress')
-      .select('student_id, subject, mastery_percentage, weak_topics, profiles:student_id(full_name)');
+  const { student_id } = req.query;
 
-    if (student_id) {
-      query = query.eq('student_id', student_id as string);
+  // ── Fetch quiz performance for all students (or one specific student) ──────
+  let quizQuery = supabase
+    .from('quizzes')
+    .select('student_id, subject, score, total_questions, profiles:student_id(full_name)')
+    .not('score', 'is', null);
+
+  if (student_id) quizQuery = quizQuery.eq('student_id', student_id as string);
+
+  // If teacher, optionally filter by their own students (via assignments)
+  // For now, show all students — teacher sees class-wide view
+  const { data: quizData, error } = await quizQuery;
+  if (error) return res.status(500).json({ error: error.message });
+
+  // ── Also fetch progress table weak_topics ─────────────────────────────────
+  const { data: progressData } = await supabase
+    .from('progress')
+    .select('student_id, subject, mastery_percentage, weak_topics, profiles:student_id(full_name)');
+
+  // ── Build alerts ───────────────────────────────────────────────────────────
+  const alerts: { type: 'critical' | 'warning'; message: string }[] = [];
+  const weakTopicCounts: Record<string, number> = {};
+
+  // From progress table
+  progressData?.forEach((item: any) => {
+    const name = Array.isArray(item.profiles) ? item.profiles[0]?.full_name : item.profiles?.full_name;
+    const studentName = name || 'A student';
+
+    if (item.mastery_percentage != null && item.mastery_percentage < 50) {
+      alerts.push({
+        type: 'critical',
+        message: `${studentName}'s mastery in ${item.subject} is ${item.mastery_percentage}% — below threshold.`,
+      });
     }
 
-    const { data: progressList, error } = await query;
-    if (error) return res.status(500).json({ error: error.message });
+    const topics = Array.isArray(item.weak_topics) ? item.weak_topics : [];
+    topics.forEach((t: string) => {
+      weakTopicCounts[t] = (weakTopicCounts[t] || 0) + 1;
+    });
+  });
 
-    // Aggregate weak topics and critical alerts
-    const alerts: { type: 'critical' | 'warning'; message: string }[] = [];
-    const weakTopicCounts: Record<string, number> = {};
+  // From quiz scores
+  const studentQuizScores: Record<string, { name: string; scores: number[] }> = {};
+  quizData?.forEach((q: any) => {
+    if (!q.student_id || q.total_questions == null || q.total_questions === 0) return;
+    const pct = (q.score / q.total_questions) * 100;
+    const name = Array.isArray(q.profiles) ? q.profiles[0]?.full_name : q.profiles?.full_name;
+    if (!studentQuizScores[q.student_id]) {
+      studentQuizScores[q.student_id] = { name: name || 'Student', scores: [] };
+    }
+    studentQuizScores[q.student_id].scores.push(pct);
+  });
 
-    progressList?.forEach((item: { profiles?: { full_name?: string }[]; mastery_percentage: number | null; subject: string; weak_topics: unknown }) => {
-      const studentName = item.profiles?.[0]?.full_name || 'Student';
-      if (item.mastery_percentage !== null && item.mastery_percentage < 50) {
-        alerts.push({
-          type: 'critical',
-          message: `${studentName}'s mastery in ${item.subject} dropped below 50% (${item.mastery_percentage}%).`
-        });
-      }
-
-      const topics = Array.isArray(item.weak_topics) ? item.weak_topics : [];
-      topics.forEach((t: string) => {
-        weakTopicCounts[t] = (weakTopicCounts[t] || 0) + 1;
+  Object.entries(studentQuizScores).forEach(([, { name, scores }]) => {
+    const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+    if (avg < 50) {
+      alerts.push({
+        type: 'critical',
+        message: `${name}'s average quiz score is ${Math.round(avg)}% — needs intervention.`,
       });
-    });
+    }
+  });
 
-    Object.entries(weakTopicCounts).forEach(([topic, count]) => {
-      if (count >= 2) {
-        alerts.push({
-          type: 'warning',
-          message: `${count} students are struggling with "${topic}".`
-        });
-      }
-    });
+  // Aggregate weak topic warnings
+  Object.entries(weakTopicCounts).forEach(([topic, count]) => {
+    if (count >= 2) {
+      alerts.push({
+        type: 'warning',
+        message: `${count} students are struggling with "${topic}".`,
+      });
+    }
+  });
 
-    return res.status(200).json({
-      alerts,
-      weakTopicCounts,
-      studentProgress: progressList
-    });
-  }
+  // Deduplicate alerts
+  const seen = new Set<string>();
+  const uniqueAlerts = alerts.filter(a => {
+    if (seen.has(a.message)) return false;
+    seen.add(a.message);
+    return true;
+  });
 
-  return res.status(405).json({ error: 'Method not allowed' });
+  // ── Build student roster with mastery ──────────────────────────────────────
+  const rosterMap: Record<string, { id: string; name: string; subject: string; mastery: number; weakTopic: string }[]> = {};
+
+  progressData?.forEach((item: any) => {
+    const id = item.student_id;
+    const name = Array.isArray(item.profiles) ? item.profiles[0]?.full_name : item.profiles?.full_name;
+    if (!rosterMap[id]) rosterMap[id] = [];
+    rosterMap[id].push({
+      id,
+      name: name || 'Student',
+      subject: item.subject,
+      mastery: item.mastery_percentage ?? 0,
+      weakTopic: Array.isArray(item.weak_topics) && item.weak_topics.length > 0
+        ? item.weak_topics[0]
+        : 'None',
+    });
+  });
+
+  // Aggregate per student (use lowest mastery subject as the displayed row)
+  const students = Object.entries(rosterMap).map(([id, rows]) => {
+    const lowest = rows.sort((a, b) => a.mastery - b.mastery)[0];
+    return {
+      id,
+      name: lowest.name,
+      mastery: Math.round(rows.reduce((s, r) => s + r.mastery, 0) / rows.length),
+      weakTopic: lowest.weakTopic,
+      subjects: rows.map(r => ({ subject: r.subject, mastery: r.mastery })),
+    };
+  });
+
+  return res.status(200).json({
+    alerts: uniqueAlerts.slice(0, 10),
+    weakTopicCounts,
+    students,
+    hasData: students.length > 0 || uniqueAlerts.length > 0,
+  });
 }

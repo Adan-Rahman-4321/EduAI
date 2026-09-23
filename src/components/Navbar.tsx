@@ -1,4 +1,4 @@
-import { Bot, Bell, Settings, Languages, Menu, LogOut, User, CheckCircle2, X } from "lucide-react";
+import { Bot, Bell, Settings, Menu, LogOut, User, CheckCircle2, X } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase/config";
@@ -17,6 +17,14 @@ export default function Navbar({ onMenuToggle, language, setLanguage }: NavbarPr
   const [showProfile, setShowProfile] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+
+  // Settings toggle states
+  const [darkMode, setDarkMode] = useState(true);
+  const [aiVoice, setAiVoice] = useState(false);
+
+  // Refs for click-outside detection
+  const profileRef = useRef<HTMLDivElement>(null);
+  const notificationsRef = useRef<HTMLDivElement>(null);
   
   // User state
   const [userName, setUserName] = useState("Guest");
@@ -43,6 +51,20 @@ export default function Navbar({ onMenuToggle, language, setLanguage }: NavbarPr
       }
     });
     return () => unsubscribe();
+  }, []);
+
+  // Click-outside handler for profile and notifications dropdowns
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setShowProfile(false);
+      }
+      if (notificationsRef.current && !notificationsRef.current.contains(e.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const handleLogout = async () => {
@@ -96,7 +118,7 @@ export default function Navbar({ onMenuToggle, language, setLanguage }: NavbarPr
           </div>
 
           {/* Notifications Dropdown */}
-          <div className="relative">
+          <div className="relative" ref={notificationsRef}>
             <button 
               onClick={() => { setShowNotifications(!showNotifications); setShowProfile(false); }}
               className="p-2 text-slate-400 hover:text-sky-400 transition-colors relative"
@@ -138,7 +160,7 @@ export default function Navbar({ onMenuToggle, language, setLanguage }: NavbarPr
           </button>
 
           {/* Profile Dropdown */}
-          <div className="relative hidden sm:block">
+          <div className="relative hidden sm:block" ref={profileRef}>
             <div 
               onClick={() => { setShowProfile(!showProfile); setShowNotifications(false); }}
               className="w-8 h-8 rounded-full bg-slate-700 border-2 border-slate-600 overflow-hidden cursor-pointer hover:border-sky-400 transition-colors flex items-center justify-center text-xs font-bold text-white"
@@ -154,7 +176,7 @@ export default function Navbar({ onMenuToggle, language, setLanguage }: NavbarPr
                 </div>
                 <div className="p-2">
                   <button className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2">
-                    <User className="w-4 h-4" /> Profile Profile
+                    <User className="w-4 h-4" /> Profile
                   </button>
                   <button 
                     onClick={handleLogout}
@@ -171,46 +193,68 @@ export default function Navbar({ onMenuToggle, language, setLanguage }: NavbarPr
 
       {/* Settings Modal */}
       {showSettings && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-700/50 rounded-2xl p-6 max-w-md w-full shadow-2xl relative animate-in zoom-in-95 duration-200">
-            <button 
-              onClick={() => setShowSettings(false)}
-              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white bg-slate-800/50 hover:bg-slate-700 rounded-full transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}
+        >
+          <div className="bg-slate-900 border border-slate-700/50 rounded-2xl w-full max-w-md shadow-2xl relative animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+            {/* Header - fixed */}
+            <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-700/50 shrink-0">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <Settings className="w-5 h-5 text-sky-400" /> Platform Settings
+              </h3>
+              <button 
+                onClick={() => setShowSettings(false)}
+                className="p-2 text-slate-400 hover:text-white bg-slate-800/50 hover:bg-slate-700 rounded-full transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-            <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-              <Settings className="w-5 h-5 text-sky-400" /> Platform Settings
-            </h3>
-            
-            <div className="space-y-5">
+            {/* Scrollable body */}
+            <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5">
+              {/* Dark Mode */}
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-sm font-medium text-slate-200">Dark Mode</h4>
                   <p className="text-xs text-slate-400">Toggle dark theme</p>
                 </div>
-                <div className="w-10 h-5 bg-sky-500 rounded-full relative cursor-pointer">
-                  <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full"></div>
-                </div>
+                <button
+                  onClick={() => setDarkMode(!darkMode)}
+                  className={`w-10 h-5 rounded-full relative transition-colors duration-200 focus:outline-none ${darkMode ? 'bg-sky-500' : 'bg-slate-700'}`}
+                >
+                  <span
+                    className={`absolute top-1 w-3 h-3 bg-white rounded-full shadow transition-all duration-200 ${darkMode ? 'right-1' : 'left-1'}`}
+                  />
+                </button>
               </div>
+
+              {/* AI Tutor Voice */}
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-sm font-medium text-slate-200">AI Tutor Voice</h4>
                   <p className="text-xs text-slate-400">Enable voice responses</p>
                 </div>
-                <div className="w-10 h-5 bg-slate-700 rounded-full relative cursor-pointer">
-                  <div className="absolute left-1 top-1 w-3 h-3 bg-slate-400 rounded-full"></div>
-                </div>
+                <button
+                  onClick={() => setAiVoice(!aiVoice)}
+                  className={`w-10 h-5 rounded-full relative transition-colors duration-200 focus:outline-none ${aiVoice ? 'bg-sky-500' : 'bg-slate-700'}`}
+                >
+                  <span
+                    className={`absolute top-1 w-3 h-3 rounded-full shadow transition-all duration-200 ${aiVoice ? 'bg-white right-1' : 'bg-slate-400 left-1'}`}
+                  />
+                </button>
               </div>
             </div>
-            
-            <button 
-              onClick={() => setShowSettings(false)}
-              className="w-full mt-8 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-medium transition-colors"
-            >
-              Save Preferences
-            </button>
+
+            {/* Footer - fixed */}
+            <div className="px-6 pb-6 pt-4 border-t border-slate-700/50 shrink-0">
+              <button 
+                onClick={() => setShowSettings(false)}
+                className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-medium transition-colors"
+              >
+                Save Preferences
+              </button>
+            </div>
           </div>
         </div>
       )}
